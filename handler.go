@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const meta = ".meta"
@@ -23,14 +23,6 @@ var mapping = map[string]string{
 }
 
 func (s *Server) cacheFile() http.Handler {
-	logger := log.New(os.Stderr, "", log.LstdFlags)
-
-	sendError := func(w http.ResponseWriter, err error) {
-		logger.Println(err)
-
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var url string
 		var ssl bool
@@ -64,23 +56,26 @@ func (s *Server) cacheFile() http.Handler {
 		// Check if meta file exists and short circuit if so
 		if _, err := os.Stat(meta); err == nil {
 			if meta, err := ioutil.ReadFile(meta); err != nil {
-				sendError(w, fmt.Errorf("error reading meta file %s: %s", meta, err))
+				sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed reading meta file %s: %s", meta, err))
 			} else {
-				w.Write(meta)
+				// addr:= path.Joi fmt.Sprintf("%s://%s", r.URL.Scheme, r.Host)
+
+
+				fmt.Fprintf(w, "%s://%s%s%s", r.URL.Scheme, r.Host, patternCache, meta)
 			}
 
 			return
 		}
 
 		if err := os.MkdirAll(path, 0755); err != nil {
-			sendError(w, fmt.Errorf("error creating directory %s: %s", path, err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed creating directory %s: %s", path, err))
 			return
 		}
 
 		res, err := s.client.Get(url)
 
 		if err != nil {
-			sendError(w, fmt.Errorf("error downloading file %s: %s", url, err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed downloading file %s: %s", url, err))
 			return
 		}
 
@@ -94,7 +89,7 @@ func (s *Server) cacheFile() http.Handler {
 		data := make([]byte, 512)
 
 		if _, err := io.ReadFull(res.Body, data); err != nil && err != io.ErrUnexpectedEOF {
-			sendError(w, fmt.Errorf("error reading response body: %s", err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed reading downloaded file header: %s", err))
 			return
 		}
 
@@ -113,21 +108,21 @@ func (s *Server) cacheFile() http.Handler {
 		file, err := ioutil.TempFile(path, "download")
 
 		if err != nil {
-			sendError(w, fmt.Errorf("error creating temp file: %s", err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed creating temp file: %s", err))
 			return
 		}
 
 		if _, err := file.Write(data); err != nil {
 			file.Close()
 
-			sendError(w, fmt.Errorf("error writing to temp file: %s", err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed writing to temp file: %s", err))
 			return
 		}
 
 		if _, err := io.Copy(file, res.Body); err != nil {
 			file.Close()
 
-			sendError(w, fmt.Errorf("error writing to temp file: %s", err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("faied writing to temp file: %s", err))
 			return
 		}
 
@@ -138,17 +133,25 @@ func (s *Server) cacheFile() http.Handler {
 		if err := os.Rename(file.Name(), dest); err != nil {
 			os.Remove(file.Name())
 
-			sendError(w, fmt.Errorf("error renaming temp file %s to %s: %s", file.Name(), dest, err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed renaming temp file %s to %s: %s", file.Name(), dest, err))
 			return
 		}
 
 		furl := []byte(fmt.Sprintf("http://%s/file/%s/%s/%s", r.Host, hash[0:2], hash[2:], name))
 
 		if err := ioutil.WriteFile(meta, furl, 0644); err != nil {
-			sendError(w, fmt.Errorf("error writing meta file %s: %s", meta, err))
+			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed writing meta file %s: %s", meta, err))
 			return
 		}
 
 		w.Write(furl)
 	})
+}
+
+func sendError(w http.ResponseWriter, out io.Writer, err error) {
+	fmt.Fprintf(out, "%s [error] %s\n",
+		time.Now().Format(timeFormat), // :datetime
+		err) // :error
+
+	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }

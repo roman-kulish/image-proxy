@@ -9,6 +9,12 @@ import (
 	"os"
 )
 
+const (
+	timeFormat   = "2006/01/02 15:04:05"
+	patternCache = "/cache/"
+	patternFile  = "/file/"
+)
+
 type Server struct {
 	config *Config
 	router *http.ServeMux
@@ -43,11 +49,20 @@ func (s *Server) Start() error {
 		return fmt.Errorf("invalid storage dirictory %s: %s", s.config.CacheDir, err)
 	}
 
-	w := os.Stdout
-	fs := http.FileServer(http.Dir(s.config.CacheDir))
+	if s.config.AccessLogWriter == nil {
+		s.config.AccessLogWriter = os.Stdout
+	}
 
-	s.router.Handle("/cache/", http.StripPrefix("/cache/", chain(s.cacheFile(), logger(w), method(http.MethodGet))))
-	s.router.Handle("/file/", http.StripPrefix("/file", chain(fs, logger(w), method(http.MethodGet))))
+	if s.config.ErrorLogWriter == nil {
+		s.config.ErrorLogWriter = os.Stderr
+	}
+
+	fs := http.FileServer(http.Dir(s.config.CacheDir))
+	logger := logger(s.config.ErrorLogWriter)
+	method := method(http.MethodGet)
+
+	s.router.Handle(patternCache, http.StripPrefix(patternCache, chain(s.cacheFile(), logger, method)))
+	s.router.Handle(patternFile, http.StripPrefix("/file", chain(fs, logger, method)))
 
 	srv := &http.Server{
 		Addr:         s.config.Addr,

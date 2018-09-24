@@ -57,7 +57,7 @@ func TestLogger(t *testing.T) {
 	req.RemoteAddr = "192.168.0.1"
 	req.RequestURI = "/dummy"
 
-	now := time.Now().Format(loggerTimeFormat)
+	now := time.Now().Format(timeFormat)
 	w := new(bytes.Buffer)
 
 	chain(handler, logger(w)).ServeHTTP(res, req)

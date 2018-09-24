@@ -2,6 +2,7 @@ package roxy
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"time"
@@ -52,6 +53,12 @@ type Config struct {
 
 	// Path to a directory where cached files are stored.
 	CacheDir string
+
+	// Writer to use for logging access.
+	AccessLogWriter io.Writer
+
+	// Writer to use for logging server errors.
+	ErrorLogWriter io.Writer
 }
 
 // NewConfig returns a new Config initialised with default configuration.

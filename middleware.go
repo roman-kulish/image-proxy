@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-const (
-	loggerLogFormat  = "%s [%s] \"%s %s %s\" %d %d - %.3f ms\n"
-	loggerTimeFormat = "02/Jan/2006 15:04:05 -0700"
-)
-
 // loggerResponseWriter is a wrapper on of a http.ResponseWriter,
 // which captures HTTP Status Code and Content-Length.
 //
@@ -84,14 +79,14 @@ func logger(out io.Writer) middleware {
 
 			d := float64(time.Since(now) / time.Millisecond)
 
-			fmt.Fprintf(out, loggerLogFormat,
-				r.RemoteAddr,                 // :remote-addr
-				now.Format(loggerTimeFormat), // :datetime
-				r.Method,                     // :method
-				r.RequestURI,                 // :url
-				r.Proto,                      // :http-version
-				l.status,                     // :status
-				l.size,                       // :content-length
+			fmt.Fprintf(out, "%s [info] %s \"%s %s %s\" %d %d - %.3f ms\n",
+				now.Format(timeFormat), // :datetime
+				r.RemoteAddr,           // :remote-addr
+				r.Method,               // :method
+				r.RequestURI,           // :url
+				r.Proto,                // :http-version
+				l.status,               // :status
+				l.size,                 // :content-length
 				d) // :response-time ms
 		})
 	}
