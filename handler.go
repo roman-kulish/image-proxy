@@ -104,9 +104,7 @@ func (s *Server) cacheFile() http.Handler {
 			return
 		}
 
-		if filepath.Ext(fileName) == "" {
-			fileName += ext
-		}
+		fileName += ext // force extension even if it exists
 
 		tempFile, err := ioutil.TempFile(fileDir, "download")
 
