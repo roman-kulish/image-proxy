@@ -7,9 +7,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
-	"time"
 )
 
 const meta = ".meta"
@@ -24,10 +24,10 @@ var mapping = map[string]string{
 
 func (s *Server) cacheFile() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var url string
-		var ssl bool
+		var dldURL, reqScheme string
+		var isSSL bool
 
-		if url = r.URL.Path; url == "" {
+		if dldURL = r.URL.Path; dldURL == "" {
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
@@ -37,45 +37,48 @@ func (s *Server) cacheFile() http.Handler {
 				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			} else {
-				ssl = f
+				isSSL = f
 			}
 		}
 
-		name := filepath.Base(url)
+		fileName := filepath.Base(dldURL)
 
-		if ssl {
-			url = "https://" + url
+		if isSSL {
+			dldURL = "https://" + dldURL
 		} else {
-			url = "http://" + url
+			dldURL = "http://" + dldURL
 		}
 
-		hash := fmt.Sprintf("%x", md5.Sum([]byte(url)))
-		path := filepath.Join(s.config.CacheDir, hash[0:2], hash[2:])
-		meta := filepath.Join(path, meta)
+		if r.TLS != nil {
+			reqScheme = "https://"
+		} else {
+			reqScheme = "http://"
+		}
 
-		// Check if meta file exists and short circuit if so
-		if _, err := os.Stat(meta); err == nil {
-			if meta, err := ioutil.ReadFile(meta); err != nil {
-				sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed reading meta file %s: %s", meta, err))
+		fileNameHash := fmt.Sprintf("%x", md5.Sum([]byte(dldURL)))
+		fileDir := filepath.Join(s.config.CacheDir, fileNameHash[0:2], fileNameHash[2:])
+		fileMeta := filepath.Join(fileDir, meta)
+
+		// Check if fileMeta tempFile exists and short circuit if so
+		if _, err := os.Stat(fileMeta); err == nil {
+			if meta, err := ioutil.ReadFile(fileMeta); err != nil {
+				s.sendError(w, fmt.Errorf("failed reading meta file %s: %s", meta, err))
 			} else {
-				// addr:= path.Joi fmt.Sprintf("%s://%s", r.URL.Scheme, r.Host)
-
-
-				fmt.Fprintf(w, "%s://%s%s%s", r.URL.Scheme, r.Host, patternCache, meta)
+				fmt.Fprint(w, reqScheme, path.Join(r.Host, patternFile, string(meta)))
 			}
 
 			return
 		}
 
-		if err := os.MkdirAll(path, 0755); err != nil {
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed creating directory %s: %s", path, err))
+		if err := os.MkdirAll(fileDir, 0755); err != nil {
+			s.sendError(w, fmt.Errorf("failed creating directory %s: %s", fileDir, err))
 			return
 		}
 
-		res, err := s.client.Get(url)
+		res, err := s.client.Get(dldURL)
 
 		if err != nil {
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed downloading file %s: %s", url, err))
+			s.sendError(w, fmt.Errorf("failed downloading file %s: %s", dldURL, err))
 			return
 		}
 
@@ -89,7 +92,7 @@ func (s *Server) cacheFile() http.Handler {
 		data := make([]byte, 512)
 
 		if _, err := io.ReadFull(res.Body, data); err != nil && err != io.ErrUnexpectedEOF {
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed reading downloaded file header: %s", err))
+			s.sendError(w, fmt.Errorf("failed reading header: %s", err))
 			return
 		}
 
@@ -101,57 +104,49 @@ func (s *Server) cacheFile() http.Handler {
 			return
 		}
 
-		if filepath.Ext(name) == "" {
-			name += ext
+		if filepath.Ext(fileName) == "" {
+			fileName += ext
 		}
 
-		file, err := ioutil.TempFile(path, "download")
+		tempFile, err := ioutil.TempFile(fileDir, "download")
 
 		if err != nil {
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed creating temp file: %s", err))
+			s.sendError(w, fmt.Errorf("failed creating temp file: %s", err))
 			return
 		}
 
-		if _, err := file.Write(data); err != nil {
-			file.Close()
+		if _, err := tempFile.Write(data); err != nil {
+			tempFile.Close()
 
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed writing to temp file: %s", err))
+			s.sendError(w, fmt.Errorf("failed writing to temp file: %s", err))
 			return
 		}
 
-		if _, err := io.Copy(file, res.Body); err != nil {
-			file.Close()
+		if _, err := io.Copy(tempFile, res.Body); err != nil {
+			tempFile.Close()
 
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("faied writing to temp file: %s", err))
+			s.sendError(w, fmt.Errorf("faied writing to temp file: %s", err))
 			return
 		}
 
-		file.Close()
+		tempFile.Close()
 
-		dest := filepath.Join(path, name)
+		destFile := filepath.Join(fileDir, fileName)
 
-		if err := os.Rename(file.Name(), dest); err != nil {
-			os.Remove(file.Name())
+		if err := os.Rename(tempFile.Name(), destFile); err != nil {
+			os.Remove(tempFile.Name())
 
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed renaming temp file %s to %s: %s", file.Name(), dest, err))
+			s.sendError(w, fmt.Errorf("failed renaming temp file %s to %s: %s", tempFile.Name(), destFile, err))
 			return
 		}
 
-		furl := []byte(fmt.Sprintf("http://%s/file/%s/%s/%s", r.Host, hash[0:2], hash[2:], name))
+		fileBasePath := fmt.Sprintf("%s/%s/%s", fileNameHash[0:2], fileNameHash[2:], fileName)
 
-		if err := ioutil.WriteFile(meta, furl, 0644); err != nil {
-			sendError(w, s.config.ErrorLogWriter, fmt.Errorf("failed writing meta file %s: %s", meta, err))
+		if err := ioutil.WriteFile(fileMeta, []byte(fileBasePath), 0644); err != nil {
+			s.sendError(w, fmt.Errorf("failed writing meta file %s: %s", fileMeta, err))
 			return
 		}
 
-		w.Write(furl)
+		fmt.Fprint(w, reqScheme, path.Join(r.Host, patternFile, fileBasePath))
 	})
-}
-
-func sendError(w http.ResponseWriter, out io.Writer, err error) {
-	fmt.Fprintf(out, "%s [error] %s\n",
-		time.Now().Format(timeFormat), // :datetime
-		err) // :error
-
-	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }

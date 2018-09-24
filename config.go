@@ -55,10 +55,10 @@ type Config struct {
 	CacheDir string
 
 	// Writer to use for logging access.
-	AccessLogWriter io.Writer
+	AccessWriter io.Writer
 
 	// Writer to use for logging server errors.
-	ErrorLogWriter io.Writer
+	ErrorWriter io.Writer
 }
 
 // NewConfig returns a new Config initialised with default configuration.

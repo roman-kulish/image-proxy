@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"time"
 )
 
 const (
@@ -49,16 +50,16 @@ func (s *Server) Start() error {
 		return fmt.Errorf("invalid storage dirictory %s: %s", s.config.CacheDir, err)
 	}
 
-	if s.config.AccessLogWriter == nil {
-		s.config.AccessLogWriter = os.Stdout
+	if s.config.AccessWriter == nil {
+		s.config.AccessWriter = os.Stdout
 	}
 
-	if s.config.ErrorLogWriter == nil {
-		s.config.ErrorLogWriter = os.Stderr
+	if s.config.ErrorWriter == nil {
+		s.config.ErrorWriter = os.Stderr
 	}
 
 	fs := http.FileServer(http.Dir(s.config.CacheDir))
-	logger := logger(s.config.ErrorLogWriter)
+	logger := logger(s.config.AccessWriter)
 	method := method(http.MethodGet)
 
 	s.router.Handle(patternCache, http.StripPrefix(patternCache, chain(s.cacheFile(), logger, method)))
@@ -73,6 +74,15 @@ func (s *Server) Start() error {
 
 	return srv.ListenAndServe()
 }
+
+func (s *Server) sendError(w http.ResponseWriter, err error) {
+	fmt.Fprintf(s.config.ErrorWriter, "%s [error] %s\n",
+		time.Now().Format(timeFormat), // :datetime
+		err) // :error
+
+	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+}
+
 
 func checkStorageDir(dir string) error {
 	finfo, err := os.Stat(dir)
