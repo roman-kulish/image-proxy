@@ -1,0 +1,19 @@
+version: '2'
+
+services:
+  roxy:
+    image: roxy:latest
+    env_file:
+    - .env
+    ports:
+    - 80:8080
+    networks:
+    - image-proxy
+    volumes:
+    - roxy-cache:/var/cache/roxy
+
+networks:
+  image-proxy:
+
+volumes:
+  roxy-cache:
