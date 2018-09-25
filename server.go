@@ -28,6 +28,14 @@ func NewServer(config *Config) *Server {
 		config = NewConfig()
 	}
 
+	if config.AccessWriter == nil {
+		config.AccessWriter = os.Stdout
+	}
+
+	if config.ErrorWriter == nil {
+		config.ErrorWriter = os.Stderr
+	}
+
 	client := &http.Client{
 		Timeout: config.ClientTimeout,
 		Transport: &http.Transport{
@@ -48,14 +56,6 @@ func NewServer(config *Config) *Server {
 func (s *Server) Start() error {
 	if err := checkStorageDir(s.config.CacheDir); err != nil {
 		return fmt.Errorf("invalid storage dirictory %s: %s", s.config.CacheDir, err)
-	}
-
-	if s.config.AccessWriter == nil {
-		s.config.AccessWriter = os.Stdout
-	}
-
-	if s.config.ErrorWriter == nil {
-		s.config.ErrorWriter = os.Stderr
 	}
 
 	fs := http.FileServer(http.Dir(s.config.CacheDir))

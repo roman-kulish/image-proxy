@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const meta = ".meta"
@@ -48,6 +49,8 @@ func (s *Server) cacheFile() http.Handler {
 		} else {
 			dldURL = "http://" + dldURL
 		}
+
+		dldURL += "?" + r.URL.Query().Encode()
 
 		if r.TLS != nil {
 			reqScheme = "https://"
@@ -104,7 +107,11 @@ func (s *Server) cacheFile() http.Handler {
 			return
 		}
 
-		fileName += ext // force extension even if it exists
+		oldExt := filepath.Ext(fileName)
+
+		if oldExt == "" || strings.ToLower(oldExt) != ext {
+			fileName = fileName[:len(fileName)-len(oldExt)] + ext // replace extension
+		}
 
 		tempFile, err := ioutil.TempFile(fileDir, "download")
 
